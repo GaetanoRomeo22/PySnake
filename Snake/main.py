@@ -131,9 +131,20 @@ def draw_text_with_shadow(text, font, color, shadow_color, position):
     screen.blit(shadow_surface, shadow_pos)
     screen.blit(text_surface, position)
 
-def draw_snake(snake_pos, head_icon, body_icon):
+def draw_snake(snake_pos, snake_dir, head_icon, body_icon):
     # Disegna la testa del serpente
-    screen.blit(head_icon, (snake_pos[0][0], snake_pos[0][1]), pygame.Rect(0, 0, BLOCK_SIZE, BLOCK_SIZE))
+
+    rotated_head: pygame.Surface
+    if snake_dir == (0, -BLOCK_SIZE):
+        rotated_head = pygame.transform.rotate(head_icon, 90)
+    elif snake_dir == (0, BLOCK_SIZE):
+        rotated_head = pygame.transform.rotate(head_icon, -90)
+    elif snake_dir == (-BLOCK_SIZE, 0):
+        rotated_head = pygame.transform.flip(head_icon, True, False)
+    elif snake_dir == (BLOCK_SIZE, 0):
+        rotated_head = head_icon
+
+    screen.blit(rotated_head, (snake_pos[0][0], snake_pos[0][1]), pygame.Rect(0, 0, BLOCK_SIZE, BLOCK_SIZE))
 
     # Disegna il corpo del serpente
     for pos in snake_pos[1:]:
@@ -320,7 +331,9 @@ def game(fps, mode):
             pygame.mixer.music.load(music_files["Media"])
         elif selected_difficulty == "Difficile":
             pygame.mixer.music.load(music_files["Difficile"])
+
         pygame.mixer.music.play(-1)
+
 
     if mode == "Multiplayer":
         num_obstacles = 10  # Numero di ostacoli per la modalità Multiplayer
@@ -424,10 +437,10 @@ def game(fps, mode):
         screen.blit(field_background_image, (0, 0))
 
         # Disegna il serpente
-        draw_snake(snake1_pos, blue_player_head, blue_player_body)
+        draw_snake(snake1_pos, snake1_dir, blue_player_head, blue_player_body)
 
         if mode == "Multiplayer":
-            draw_snake(snake2_pos, red_player_head, red_player_body)
+            draw_snake(snake2_pos, snake2_dir, red_player_head, red_player_body)
 
         # Disegna il cibo (mela)
         screen.blit(apple_icon, food_pos)
@@ -456,7 +469,7 @@ def game(fps, mode):
         screen.blit(score2_text, (SCREEN_WIDTH // 2 - score2_text.get_width() // 2, SCREEN_HEIGHT // 2 + 80))
 
     pygame.display.flip()
-    pygame.time.wait(5000)
+    pygame.time.wait(3000)
 
 # Loop principale del gioco
 while True:
