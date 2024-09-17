@@ -614,14 +614,20 @@ def game(fps, mode):
     pygame.mixer.music.stop()
     game_over_sound.play()
     # Mostra schermata di fine gioco
-    screen.blit(menu_background_image, (0, 0))
+    screen.fill((0, 0, 0))  # Sfondo nero per migliorare il contrasto
+
+    # Aggiungi un rettangolo opaco dietro il testo
+    game_over_rect = pygame.Rect(
+        SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 100, 300, 100)
+    pygame.draw.rect(screen, (0, 0, 0, 180), game_over_rect)  # Rettangolo semitrasparente
+
     game_over_text = big_font.render('Game Over', True, RED)
     screen.blit(game_over_text, (
         SCREEN_WIDTH // 2 - game_over_text.get_width() // 2, SCREEN_HEIGHT // 2 - game_over_text.get_height() // 2))
 
-    score_text = font.render(f"Score 1: {score1}", True, WHITE)
+    score_text = font.render(f"Score : {score1}", True, WHITE)
     screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
-
+    
     if mode == "Multiplayer":
         score2_text = font.render(f"Score 2: {score2}", True, WHITE)
         screen.blit(score2_text, (SCREEN_WIDTH // 2 - score2_text.get_width() // 2, SCREEN_HEIGHT // 2 + 80))
