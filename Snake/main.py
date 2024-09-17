@@ -320,9 +320,7 @@ def game(fps, mode):
             pygame.mixer.music.load(music_files["Media"])
         elif selected_difficulty == "Difficile":
             pygame.mixer.music.load(music_files["Difficile"])
-
         pygame.mixer.music.play(-1)
-
 
     if mode == "Multiplayer":
         num_obstacles = 10  # Numero di ostacoli per la modalità Multiplayer
@@ -458,7 +456,7 @@ def game(fps, mode):
         screen.blit(score2_text, (SCREEN_WIDTH // 2 - score2_text.get_width() // 2, SCREEN_HEIGHT // 2 + 80))
 
     pygame.display.flip()
-    pygame.time.wait(3000)
+    pygame.time.wait(5000)
 
 # Loop principale del gioco
 while True:
