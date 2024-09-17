@@ -1,5 +1,8 @@
 import pygame
 import random
+import socket
+import threading
+import os
 
 # Inizializzazione di Pygame
 pygame.init()
@@ -9,6 +12,9 @@ pygame.mixer.init()
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+explosion_sound = pygame.mixer.Sound("explosion-91872.mp3")
+game_over_sound = pygame.mixer.Sound("videogame-death-sound-43894.mp3")
+
 BLOCK_SIZE = 50
 SNAKE_SIZE = BLOCK_SIZE
 SCORE_AREA = pygame.Rect(10, 10, 200, 140)  # Modifica questo rettangolo in base all'area effettiva
@@ -62,6 +68,40 @@ menu_background_image = pygame.transform.scale(menu_background_image, (SCREEN_WI
 field_background_image = pygame.image.load('CampoDaGioco.jpeg')
 field_background_image = pygame.transform.scale(field_background_image, (SCREEN_WIDTH, SCREEN_HEIGHT))
 
+EXPLOSION_FRAMES_DIR = 'esplosione'
+explosion_frames = []
+
+
+def load_explosion_frames(directory):
+    global explosion_frames
+    for filename in sorted(os.listdir(directory)):
+        if filename.endswith('.jpg'):
+            frame = pygame.image.load(os.path.join(directory, filename))
+            explosion_frames.append(frame)
+
+
+load_explosion_frames(EXPLOSION_FRAMES_DIR)
+
+
+def animate_explosion(position):
+    frame_index = 0
+    num_frames = len(explosion_frames)
+    animation_duration = 500  # Durata totale dell'animazione in millisecondi
+    start_time = pygame.time.get_ticks()
+
+    # Riproduci il suono dell'esplosione
+    explosion_sound.play()
+
+    while pygame.time.get_ticks() - start_time < animation_duration:
+        screen.fill((0, 0, 0))  # Pulisce lo schermo con il colore nero
+        screen.blit(explosion_frames[frame_index], position)  # Disegna il frame corrente dell'esplosione
+        pygame.display.flip()
+
+        # Avanza al frame successivo
+        frame_index = (frame_index + 1) % num_frames
+        pygame.time.wait(100)  # Pausa per la durata del frame (adatta questo valore se necessario)
+
+
 def generate_food(snake_pos):
     while True:
         x = random.randint(0, (SCREEN_WIDTH // BLOCK_SIZE) - 1) * BLOCK_SIZE
@@ -71,6 +111,7 @@ def generate_food(snake_pos):
         if food_pos not in snake_pos and not SCORE_AREA.colliderect(food_rect):
             return food_pos
 
+
 def generate_obstacles(num_obstacles, snake_pos, food_pos):
     obstacles = []
     while len(obstacles) < num_obstacles:
@@ -78,16 +119,20 @@ def generate_obstacles(num_obstacles, snake_pos, food_pos):
         y = random.randint(0, (SCREEN_HEIGHT // BLOCK_SIZE) - 1) * BLOCK_SIZE
         obstacle_pos = (x, y)
         obstacle_rect = pygame.Rect(obstacle_pos[0], obstacle_pos[1], BLOCK_SIZE, BLOCK_SIZE)
-        if (obstacle_pos not in snake_pos and
+        if (
+            obstacle_pos not in snake_pos and
             obstacle_pos not in obstacles and
             obstacle_pos not in food_pos and
-            not SCORE_AREA.colliderect(obstacle_rect)):
+            not SCORE_AREA.colliderect(obstacle_rect)
+        ):
             obstacles.append(obstacle_pos)
     return obstacles
 
+
 # Collisione con se stesso
-def check_self_collision(snake_pos): # Controlla se la testa del serpente collide con una parte del corpo
+def check_self_collision(snake_pos):  # Controlla se la testa del serpente collide con una parte del corpo
     return snake_pos[0] in snake_pos[1:]
+
 
 # Disegna il punteggio
 def draw_score(score1, score2=None):
@@ -112,6 +157,7 @@ def draw_score(score1, score2=None):
         score_text = font.render(f"Score 2: {score2}", True, text_color)
         screen.blit(score_text, (20, 90))
 
+
 def animate_score_increase(score1, score2=None):
     for i in range(0, score1 + 1):
         screen.blit(field_background_image, (0, 0))
@@ -123,6 +169,7 @@ def animate_score_increase(score1, score2=None):
         draw_score(score1, i)
         pygame.display.flip()
         pygame.time.delay(50)
+
 
 def draw_text_with_shadow(text, font, color, shadow_color, position):
     text_surface = font.render(text, True, color)
@@ -193,11 +240,13 @@ def main_menu():
                         pygame.quit()
                         exit()
 
+
 def check_obstacle_collision(snake_head, obstacles):
     for obs in obstacles:
         if snake_head == obs:
-            return True
-    return False
+            return True, obs
+    return False, None
+
 
 def pause_game():
     paused = True
@@ -244,6 +293,7 @@ def pause_game():
         pygame.display.flip()
         clock.tick(30)
 
+
 # Funzione per il menu delle difficoltà
 def difficulty_menu():
     difficulty_levels = list(DIFFICULTY_LEVELS.keys())
@@ -279,6 +329,7 @@ def difficulty_menu():
 
                 if event.key == pygame.K_RETURN:
                     return difficulty_levels[selected_difficulty]  # Restituisce la difficoltà selezionata
+
 
 # Funzione per il menu delle modalità di gioco
 def mode_menu():
@@ -317,9 +368,111 @@ def mode_menu():
                     if mode_items[selected_mode] == "Single Player":
                         return "Single Player"
                     elif mode_items[selected_mode] == "Multiplayer":
-                        return "Multiplayer"
+                        return multiplayer_menu()
+
+
+def draw_text(text, font, color, surface, x, y):
+    text_obj = font.render(text, True, color)
+    text_rect = text_obj.get_rect()
+    text_rect.topleft = (x, y)
+    surface.blit(text_obj, text_rect)
+
+
+def multiplayer_menu():
+    # Opzioni per il multiplayer
+    multiplayer_items = ["Host", "Client"]
+    selected_item = 0
+
+    while True:
+        # Disegna l'immagine di sfondo
+        screen.blit(menu_background_image, (0, 0))
+
+        # Visualizza le opzioni di multiplayer
+        for i, item in enumerate(multiplayer_items):
+            if i == selected_item:
+                label = selected_menu_font.render(item, True, WHITE)
+            else:
+                label = menu_font.render(item, True, WHITE)
+
+            label_rect = label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + i * 50))
+            pygame.draw.rect(screen, BLACK, label_rect.inflate(20, 20))  # Rettangolo dietro il testo
+            screen.blit(label, label_rect)
+
+        pygame.display.flip()
+
+        # Gestione degli eventi
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    selected_item = (selected_item + 1) % len(multiplayer_items)
+                if event.key == pygame.K_UP:
+                    selected_item = (selected_item - 1) % len(multiplayer_items)
+
+                if event.key == pygame.K_RETURN:
+                    if selected_item == 0:  # Host
+                        host_game()
+                        return
+                    elif selected_item == 1:  # Client
+                        client_game()
+                        return
+
+
+def host_game():
+    waiting_for_client = True
+
+    while waiting_for_client:
+        screen.fill((0, 0, 0))  # Pulisce lo schermo
+        draw_text("In attesa della connessione dell'avversario.", font, (255, 255, 255), screen, 100, 250)
+        draw_text("Premi ESC per tornare al menu", font, (255, 255, 255), screen, 100, 300)
+
+        # Ciclo eventi di Pygame
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return mode_menu()  # Ritorna al menu principale interrompendo l'attesa
+
+        pygame.display.flip()
+
+
+def client_game():
+    server_address = ""
+    max_length = 12
+    valid_chars = "0123456789."
+
+    entering_address = True
+
+    while entering_address:
+        screen.fill((0, 0, 0))  # Pulisce lo schermo
+        draw_text("Inserisci l'indirizzo del server: " + server_address, font, (255, 255, 255), screen, 100, 250)
+        draw_text("Premi ESC per tornare al menu", font, (255, 255, 255), screen, 100, 300)
+
+        # Ciclo eventi di Pygame per inserire l'indirizzo del server
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    entering_address = False  # Esci dal ciclo dopo aver premuto invio
+                elif event.key == pygame.K_BACKSPACE:
+                    server_address = server_address[:-1]  # Cancella l'ultimo carattere
+                elif event.key == pygame.K_ESCAPE:
+                    return mode_menu()  # Ritorna al menu principale
+                elif len(server_address) < max_length and event.unicode in valid_chars:
+                    server_address += event.unicode  # Aggiungi il carattere digitato
+
+        pygame.display.flip()
+
 
 def game(fps, mode):
+    num_obstacles = 5
     if mode == "Single Player":
         # Mostra il menu di difficoltà
         selected_difficulty = difficulty_menu()
@@ -334,9 +487,10 @@ def game(fps, mode):
 
         pygame.mixer.music.play(-1)
 
-
     if mode == "Multiplayer":
         num_obstacles = 10  # Numero di ostacoli per la modalità Multiplayer
+        pygame.mixer.music.load("multiplayer.mp3")
+        pygame.mixer.music.play(-1)
 
     snake1_pos = [(100, 100)]
     snake1_dir = (0, -BLOCK_SIZE)
@@ -399,7 +553,9 @@ def game(fps, mode):
                 obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
 
         # Controlla collisioni con ostacoli
-        if check_obstacle_collision(snake1_pos[0], obstacles):
+        collision, hit_obstacle = check_obstacle_collision(snake1_pos[0], obstacles)
+        if collision:
+            animate_explosion(snake1_pos[0])
             running = False
 
         # Controlla collisione con se stesso
@@ -455,6 +611,8 @@ def game(fps, mode):
         pygame.display.flip()
         clock.tick(fps)
 
+    pygame.mixer.music.stop()
+    game_over_sound.play()
     # Mostra schermata di fine gioco
     screen.blit(menu_background_image, (0, 0))
     game_over_text = big_font.render('Game Over', True, RED)
@@ -470,6 +628,7 @@ def game(fps, mode):
 
     pygame.display.flip()
     pygame.time.wait(3000)
+
 
 # Loop principale del gioco
 while True:
