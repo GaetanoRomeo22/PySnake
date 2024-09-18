@@ -632,7 +632,7 @@ def game(fps, mode):
     food_pos = None
     obstacles = None
 
-    if is_game_host:
+    if is_game_host or mode == "Single Player":
         food_pos = generate_food(snake1_pos)
         obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
         server.send({
@@ -648,7 +648,7 @@ def game(fps, mode):
                 running = False
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE and mode == "Singleplayer":  # Pausa se si preme ESC
+                if event.key == pygame.K_ESCAPE and mode == "Single Player":  # Pausa se si preme ESC
                     pause_game()
                 if event.key == pygame.K_UP and snake1_dir != (0, BLOCK_SIZE):
                     snake1_dir = (0, -BLOCK_SIZE)
@@ -698,12 +698,12 @@ def game(fps, mode):
             if mode == "Single Player":
                 num_obstacles += 1
                 obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
-
-            server.send({
-                'type': 'extra',
-                'food': food_pos,
-                'obstacles': obstacles
-            })
+            else:
+                server.send({
+                    'type': 'extra',
+                    'food': food_pos,
+                    'obstacles': obstacles
+                })
 
         # Controlla collisioni con ostacoli
         collision, hit_obstacle = check_obstacle_collision(snake1_pos[0], obstacles)
@@ -716,7 +716,7 @@ def game(fps, mode):
             running = False
 
         # Controlla collisioni tra i serpenti
-        if new_head1 in snake2_pos[1:] or snake2_pos[0] in snake1_pos[1:]:
+        if mode == "Multiplayer" and (new_head1 in snake2_pos[1:] or snake2_pos[0] in snake1_pos[1:]):
             running = False
 
         server.send({
