@@ -1,12 +1,118 @@
+from array import array
+
 import pygame
 import random
-import socket
-import threading
 import os
+
+import atomics
+import socket as net
+import json
+
+from threading import Thread, Lock
+from queue import Queue, Empty
 
 # Inizializzazione di Pygame
 pygame.init()
 pygame.mixer.init()
+
+
+class ServerTask:
+    GAME_PORT = 7777
+
+    def __init__(self):
+        self.address = net.gethostbyname(net.gethostname())
+        self.client_address = None
+        self.thread = Thread(target=self.run)
+
+        socket = net.socket(net.AF_INET, net.SOCK_DGRAM)
+        socket.bind((self.address, self.GAME_PORT))
+        socket.setblocking(False)
+        self.socket = socket
+
+        self.is_running = atomics.atomic(width=1, atype=atomics.INTEGRAL, is_signed=False)
+        self.is_running.store(False)
+
+        self.is_connected = atomics.atomic(width=1, atype=atomics.INTEGRAL, is_signed=False)
+        self.is_connected.store(False)
+
+        self.client_queue = Queue()
+        self.server_queue = Queue()
+
+    def start(self):
+        self.is_running.store(True)
+
+        self.thread = Thread(target=self.run)
+        self.thread.start()
+
+    def stop(self):
+        if self.get_is_running():
+            self.is_running.store(False)
+            self.is_connected.store(False)
+            self.thread.join()
+
+    def connect(self, address):
+        if self.get_is_connected():
+            return
+
+        self.client_address = address
+        self.send({
+            'type': 'identify',
+            'address': address
+        })
+
+    def get_is_running(self):
+        return self.is_running.load()
+
+    def get_is_connected(self):
+        return self.is_connected.load()
+
+    def run(self):
+        while self.is_running.load():
+            data, address = self.receive()
+            if data is not None:
+                message = json.loads(data.decode())
+                print(f'Received: {message}')
+                match message['type']:
+                    case 'identify':
+                        self.client_address = address[0]
+                        self.is_connected.store(True)
+
+                    case _:
+                        self.client_queue.put(message)
+
+            try:
+                message = self.server_queue.get(False)
+                self.send(message)
+            except Empty:
+                pass
+
+    def receive(self):
+        try:
+            data, address = self.socket.recvfrom(4096)
+            if not data:
+                return None, None
+
+            if len(data) == 0:
+                return bytes(), None
+
+            while len(data) == 4096:
+                (next_data, next_address) = self.socket.recvfrom(4096)
+                assert address == next_address
+
+                data += next_data
+
+            return data, address
+        except BlockingIOError:
+            return None, None
+
+    def send(self, message):
+        if not self.is_running.load():
+            return
+
+        print(f'Sent: {message}')
+        data = json.dumps(message).encode()
+        self.socket.sendto(data, (self.client_address, self.GAME_PORT))
+
 
 # Impostazioni di base del gioco
 SCREEN_WIDTH = 800
@@ -18,12 +124,12 @@ game_over_sound = pygame.mixer.Sound("videogame-death-sound-43894.mp3")
 BLOCK_SIZE = 50
 SNAKE_SIZE = BLOCK_SIZE
 SCORE_AREA = pygame.Rect(10, 10, 200, 140)  # Modifica questo rettangolo in base all'area effettiva
-FPS = 10  # FPS iniziale per la difficoltà media
+FPS = 5  # FPS iniziale per la difficoltà media
 DIFFICULTY_LEVELS = {"Facile": 5, "Media": 10, "Difficile": 15}
 music_files = {
     "Facile": 'easy.mp3',
     "Media": 'medium.mp3',
-    "Difficile": 'hard.mp3'
+    "Difficile": 'hard.mp3',
 }
 
 # Colori
@@ -70,6 +176,10 @@ field_background_image = pygame.transform.scale(field_background_image, (SCREEN_
 
 EXPLOSION_FRAMES_DIR = 'esplosione'
 explosion_frames = []
+
+# Server
+server = ServerTask()
+is_game_host = False
 
 
 def load_explosion_frames(directory):
@@ -147,15 +257,18 @@ def draw_score(score1, score2=None):
     # Disegna il blocco per il punteggio del primo giocatore
     pygame.draw.rect(screen, block_color, (10, 10, 200, 60))  # Blocco di sfondo
     pygame.draw.rect(screen, border_color, (10, 10, 200, 60), 2)  # Bordo del blocco
-    score_text = font.render(f"Score 1: {score1}", True, text_color)
-    screen.blit(score_text, (20, 20))
+    if score2 is None:
+        score_text = font.render(f"Score: {score1}", True, text_color)
+    else:
+        score_text = font.render(f"Score 1: {score1}", True, text_color)
 
-    # Disegna il blocco per il punteggio del secondo giocatore, se presente
-    if score2 is not None:
+        # Disegna il blocco per il punteggio del secondo giocatore, se presente
         pygame.draw.rect(screen, block_color, (10, 80, 200, 60))  # Blocco di sfondo
         pygame.draw.rect(screen, border_color, (10, 80, 200, 60), 2)  # Bordo del blocco
         score_text = font.render(f"Score 2: {score2}", True, text_color)
         screen.blit(score_text, (20, 90))
+
+    screen.blit(score_text, (20, 20))
 
 
 def animate_score_increase(score1, score2=None):
@@ -178,6 +291,7 @@ def draw_text_with_shadow(text, font, color, shadow_color, position):
     screen.blit(shadow_surface, shadow_pos)
     screen.blit(text_surface, position)
 
+
 def draw_snake(snake_pos, snake_dir, head_icon, body_icon):
     # Disegna la testa del serpente
 
@@ -197,11 +311,14 @@ def draw_snake(snake_pos, snake_dir, head_icon, body_icon):
     for pos in snake_pos[1:]:
         screen.blit(body_icon, (pos[0], pos[1]), pygame.Rect(0, 0, BLOCK_SIZE, BLOCK_SIZE))
 
+
 # Funzione per il menu principale
 def main_menu():
     pygame.mixer.music.load('menu.mp3')
     pygame.mixer.music.set_volume(0.5)
     pygame.mixer.music.play(-1)
+    server.stop()
+
     menu_items = ["Inizia Gioco", "Esci"]
     selected_item = 0
     while True:
@@ -382,6 +499,7 @@ def multiplayer_menu():
     # Opzioni per il multiplayer
     multiplayer_items = ["Host", "Client"]
     selected_item = 0
+    server.start()
 
     while True:
         # Disegna l'immagine di sfondo
@@ -415,19 +533,24 @@ def multiplayer_menu():
                 if event.key == pygame.K_RETURN:
                     if selected_item == 0:  # Host
                         host_game()
-                        return
                     elif selected_item == 1:  # Client
                         client_game()
-                        return
+                    return "Multiplayer"
 
 
 def host_game():
     waiting_for_client = True
 
+    global is_game_host
+    is_game_host = True
+
     while waiting_for_client:
         screen.fill((0, 0, 0))  # Pulisce lo schermo
         draw_text("In attesa della connessione dell'avversario.", font, (255, 255, 255), screen, 100, 250)
         draw_text("Premi ESC per tornare al menu", font, (255, 255, 255), screen, 100, 300)
+
+        if server.get_is_connected():
+            waiting_for_client = False
 
         # Ciclo eventi di Pygame
         for event in pygame.event.get():
@@ -443,10 +566,13 @@ def host_game():
 
 def client_game():
     server_address = ""
-    max_length = 12
+    max_length = 15
     valid_chars = "0123456789."
 
     entering_address = True
+
+    global is_game_host
+    is_game_host = False
 
     while entering_address:
         screen.fill((0, 0, 0))  # Pulisce lo schermo
@@ -460,6 +586,7 @@ def client_game():
                 exit()
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
+                    server.connect(server_address)
                     entering_address = False  # Esci dal ciclo dopo aver premuto invio
                 elif event.key == pygame.K_BACKSPACE:
                     server_address = server_address[:-1]  # Cancella l'ultimo carattere
@@ -492,27 +619,36 @@ def game(fps, mode):
         pygame.mixer.music.load("multiplayer.mp3")
         pygame.mixer.music.play(-1)
 
-    snake1_pos = [(100, 100)]
+    snake1_pos = [(100, 100)] if is_game_host else [(200, 200)]
     snake1_dir = (0, -BLOCK_SIZE)
-    food_pos = generate_food(snake1_pos)
     score1 = 0
-    obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
     snake1_growing = False  # Flag per indicare se il serpente deve crescere
 
-    if mode == "Multiplayer":
-        snake2_pos = [(200, 200)]
-        snake2_dir = (0, -BLOCK_SIZE)
-        score2 = 0
-        snake2_growing = False  # Flag per indicare se il secondo serpente deve crescere
+    snake2_pos = snake1_pos
+    snake2_dir = snake1_dir
+    score2 = 0
+    is_other_running = True
+
+    food_pos = None
+    obstacles = None
+
+    if is_game_host:
+        food_pos = generate_food(snake1_pos)
+        obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
+        server.send({
+            'type': 'extra',
+            'food': food_pos,
+            'obstacles': obstacles
+        })
 
     running = True
-    while running:
+    while running and is_other_running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:  # Pausa se si preme ESC
+                if event.key == pygame.K_ESCAPE and mode == "Singleplayer":  # Pausa se si preme ESC
                     pause_game()
                 if event.key == pygame.K_UP and snake1_dir != (0, BLOCK_SIZE):
                     snake1_dir = (0, -BLOCK_SIZE)
@@ -522,16 +658,6 @@ def game(fps, mode):
                     snake1_dir = (-BLOCK_SIZE, 0)
                 if event.key == pygame.K_RIGHT and snake1_dir != (-BLOCK_SIZE, 0):
                     snake1_dir = (BLOCK_SIZE, 0)
-
-                if mode == "Multiplayer":
-                    if event.key == pygame.K_w and snake2_dir != (0, BLOCK_SIZE):
-                        snake2_dir = (0, -BLOCK_SIZE)
-                    if event.key == pygame.K_s and snake2_dir != (0, -BLOCK_SIZE):
-                        snake2_dir = (0, BLOCK_SIZE)
-                    if event.key == pygame.K_a and snake2_dir != (BLOCK_SIZE, 0):
-                        snake2_dir = (-BLOCK_SIZE, 0)
-                    if event.key == pygame.K_d and snake2_dir != (-BLOCK_SIZE, 0):
-                        snake2_dir = (BLOCK_SIZE, 0)
 
         # Aggiornamento della posizione del serpente
         new_head1 = (snake1_pos[0][0] + snake1_dir[0], snake1_pos[0][1] + snake1_dir[1])
@@ -543,14 +669,41 @@ def game(fps, mode):
         else:
             snake1_pos = [new_head1] + snake1_pos[:-1]
 
+        while True:
+            try:
+                message = server.client_queue.get(False)
+                match message['type']:
+                    case 'update':
+                        snake2_pos = [tuple(p) for p in message['position']]
+                        snake2_dir = tuple(message['direction'])
+                        score2 = int(message['score'])
+                        is_other_running = bool(message['running'])
+
+                    case 'extra':
+                        food_pos = tuple(message['food'])
+                        obstacles = [tuple(p) for p in message['obstacles']]
+
+            except Empty:
+                break
+
+        if food_pos is None or obstacles is None:
+            continue
+
         # Controlla collisioni con il cibo
         if snake1_pos[0] == food_pos:
             snake1_growing = True  # Imposta il flag per far crescere il serpente
             food_pos = generate_food(snake1_pos)
             score1 += 1
+
             if mode == "Single Player":
                 num_obstacles += 1
                 obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
+
+            server.send({
+                'type': 'extra',
+                'food': food_pos,
+                'obstacles': obstacles
+            })
 
         # Controlla collisioni con ostacoli
         collision, hit_obstacle = check_obstacle_collision(snake1_pos[0], obstacles)
@@ -562,32 +715,17 @@ def game(fps, mode):
         if check_self_collision(snake1_pos):
             running = False
 
-        # Gestione della modalità multiplayer
-        if mode == "Multiplayer":
-            new_head2 = (snake2_pos[0][0] + snake2_dir[0], snake2_pos[0][1] + snake2_dir[1])
-            # Teletrasporto del serpente quando esce dai bordi
-            new_head2 = (new_head2[0] % SCREEN_WIDTH, new_head2[1] % SCREEN_HEIGHT)
-            if snake2_growing:
-                snake2_pos = [new_head2] + snake2_pos
-                snake2_growing = False
-            else:
-                snake2_pos = [new_head2] + snake2_pos[:-1]
+        # Controlla collisioni tra i serpenti
+        if new_head1 in snake2_pos[1:] or snake2_pos[0] in snake1_pos[1:]:
+            running = False
 
-            # Controlla collisioni con il cibo
-            if snake2_pos[0] == food_pos:
-                snake2_growing = True  # Imposta il flag per far crescere il secondo serpente
-                food_pos = generate_food(snake2_pos)
-                score2 += 1
-                num_obstacles += 1
-                obstacles = generate_obstacles(num_obstacles, snake1_pos + snake2_pos)
-
-            # Controlla collisioni con ostacoli
-            if check_obstacle_collision(snake2_pos[0], obstacles):
-                running = False
-
-            # Controlla collisioni tra i serpenti
-            if new_head1 in snake2_pos[1:] or new_head2 in snake1_pos[1:]:
-                running = False
+        server.send({
+            'type': 'update',
+            'position': snake1_pos,
+            'direction': snake1_dir,
+            'score': score1,
+            'running': running
+        })
 
         # Disegna lo sfondo e la griglia
         screen.blit(field_background_image, (0, 0))
@@ -625,9 +763,13 @@ def game(fps, mode):
     screen.blit(game_over_text, (
         SCREEN_WIDTH // 2 - game_over_text.get_width() // 2, SCREEN_HEIGHT // 2 - game_over_text.get_height() // 2))
 
-    score_text = font.render(f"Score : {score1}", True, WHITE)
+    if mode == "Single Player":
+        score_text = font.render(f"Score : {score1}", True, WHITE)
+    else:
+        score_text = font.render(f"Score 1: {score1}", True, WHITE)
+
     screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
-    
+
     if mode == "Multiplayer":
         score2_text = font.render(f"Score 2: {score2}", True, WHITE)
         screen.blit(score2_text, (SCREEN_WIDTH // 2 - score2_text.get_width() // 2, SCREEN_HEIGHT // 2 + 80))
