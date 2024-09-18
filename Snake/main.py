@@ -115,7 +115,7 @@ BLOCK_SIZE = 50
 SNAKE_SIZE = BLOCK_SIZE
 SCORE_AREA = pygame.Rect(10, 10, 200, 140)  # Modifica questo rettangolo in base all'area effettiva
 FPS = 5  # FPS iniziale per la difficoltà media
-DIFFICULTY_LEVELS = {"Facile": 5, "Media": 10, "Difficile": 15}
+DIFFICULTY_LEVELS = {"Facile": 3, "Media": 5, "Difficile": 10}
 music_files = {
     "Facile": 'easy.mp3',
     "Media": 'medium.mp3',
@@ -126,6 +126,7 @@ music_files = {
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GREEN = (0, 255, 0)
+YELLOW = (255, 255, 0)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 
@@ -249,16 +250,16 @@ def draw_score(score1, score2=None):
     pygame.draw.rect(screen, border_color, (10, 10, 200, 60), 2)  # Bordo del blocco
     if score2 is None:
         score_text = font.render(f"Score: {score1}", True, text_color)
+        screen.blit(score_text, (20, 20))
     else:
         score_text = font.render(f"Score 1: {score1}", True, text_color)
+        screen.blit(score_text, (20, 20))
 
         # Disegna il blocco per il punteggio del secondo giocatore, se presente
         pygame.draw.rect(screen, block_color, (10, 80, 200, 60))  # Blocco di sfondo
         pygame.draw.rect(screen, border_color, (10, 80, 200, 60), 2)  # Bordo del blocco
         score_text = font.render(f"Score 2: {score2}", True, text_color)
         screen.blit(score_text, (20, 90))
-
-    screen.blit(score_text, (20, 20))
 
 
 def animate_score_increase(score1, score2=None):
@@ -311,9 +312,16 @@ def main_menu():
 
     menu_items = ["Inizia Gioco", "Esci"]
     selected_item = 0
+
+    title_font = pygame.font.Font('PixelOperatorMono.ttf', 100)  # Font di dimensione 100
+    title_color = (255, 255, 255)  # Colore bianco
     while True:
         # Disegna l'immagine di sfondo
         screen.blit(menu_background_image, (0, 0))
+        # Visualizza il nome del gioco
+        title_text = title_font.render("PYSNAKE", True, title_color)
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))  # Posiziona il titolo in alto
+        screen.blit(title_text, title_rect)
 
         # Visualizza le opzioni del menu
         for i, item in enumerate(menu_items):
@@ -350,7 +358,7 @@ def main_menu():
 
 def check_obstacle_collision(snake_head, obstacles):
     for obs in obstacles:
-        if snake_head == obs:
+        if snake_head[0] == obs[0] and snake_head[1] == obs[1]:
             return True, obs
     return False, None
 
@@ -404,7 +412,7 @@ def pause_game():
 # Funzione per il menu delle difficoltà
 def difficulty_menu():
     difficulty_levels = list(DIFFICULTY_LEVELS.keys())
-    selected_difficulty = 1  # Default: "Media"
+    selected_difficulty = 0  # Default: "Media"
     while True:
         # Disegna l'immagine di sfondo
         screen.blit(menu_background_image, (0, 0))
@@ -589,7 +597,7 @@ def client_game():
 
 
 def game(fps, mode):
-    num_obstacles = 5
+    num_obstacles = 0
     if mode == "Single Player":
         # Mostra il menu di difficoltà
         selected_difficulty = difficulty_menu()
@@ -605,7 +613,7 @@ def game(fps, mode):
         pygame.mixer.music.play(-1)
 
     if mode == "Multiplayer":
-        num_obstacles = 10  # Numero di ostacoli per la modalità Multiplayer
+        # num_obstacles = 10  # Numero di ostacoli per la modalità Multiplayer
         pygame.mixer.music.load("multiplayer.mp3")
         pygame.mixer.music.play(-1)
 
@@ -700,7 +708,7 @@ def game(fps, mode):
         # Controlla collisioni con ostacoli
         collision, hit_obstacle = check_obstacle_collision(snake1_pos[0], obstacles)
         if collision:
-            animate_explosion(snake1_pos[0])
+            animate_explosion(hit_obstacle)
             running = False
 
         # Controlla collisione con se stesso
@@ -708,7 +716,7 @@ def game(fps, mode):
             running = False
 
         # Controlla collisioni tra i serpenti
-        if mode == "Multiplayer" and (new_head1 in snake2_pos[1:] or snake2_pos[0] in snake1_pos[1:]):
+        if mode == "Multiplayer" and set(snake1_pos).intersection(snake2_pos):
             running = False
 
         server.send({
@@ -743,6 +751,7 @@ def game(fps, mode):
 
     pygame.mixer.music.stop()
     game_over_sound.play()
+    game_over_sound.set_volume(5)
     # Mostra schermata di fine gioco
     screen.fill((0, 0, 0))  # Sfondo nero per migliorare il contrasto
 
@@ -751,16 +760,26 @@ def game(fps, mode):
         SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 100, 300, 100)
     pygame.draw.rect(screen, (0, 0, 0, 180), game_over_rect)  # Rettangolo semitrasparente
 
-    game_over_text = big_font.render('Game Over', True, RED)
+    if mode == "Multiplayer":
+        if score1 > score2:
+            game_over_text = big_font.render('Giocatore 1 Vince!', True, GREEN)
+        elif score2 > score1:
+            game_over_text = big_font.render('Giocatore 2 Vince!', True, GREEN)
+        else:
+            game_over_text = big_font.render('Pareggio!', True, YELLOW)
+
+    else:
+        game_over_text = big_font.render('Game Over', True, RED)
+
     screen.blit(game_over_text, (
         SCREEN_WIDTH // 2 - game_over_text.get_width() // 2, SCREEN_HEIGHT // 2 - game_over_text.get_height() // 2))
 
     if mode == "Single Player":
         score_text = font.render(f"Score : {score1}", True, WHITE)
+        screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
     else:
         score_text = font.render(f"Score 1: {score1}", True, WHITE)
-
-    screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
+        screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, SCREEN_HEIGHT // 2 + 50))
 
     if mode == "Multiplayer":
         score2_text = font.render(f"Score 2: {score2}", True, WHITE)
