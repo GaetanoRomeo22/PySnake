@@ -221,10 +221,10 @@ def generate_obstacles(num_obstacles, snake_pos, food_pos):
         obstacle_pos = (x, y)
         obstacle_rect = pygame.Rect(obstacle_pos[0], obstacle_pos[1], BLOCK_SIZE, BLOCK_SIZE)
         if (
-            obstacle_pos not in snake_pos and
-            obstacle_pos not in obstacles and
-            obstacle_pos not in food_pos and
-            not SCORE_AREA.colliderect(obstacle_rect)
+                obstacle_pos not in snake_pos and
+                obstacle_pos not in obstacles and
+                obstacle_pos not in food_pos and
+                not SCORE_AREA.colliderect(obstacle_rect)
         ):
             obstacles.append(obstacle_pos)
     return obstacles
@@ -530,11 +530,11 @@ def multiplayer_menu():
 
                 if event.key == pygame.K_RETURN:
                     if selected_item == 0:  # Host
-                        host_game()
+                        return host_game()
                     elif selected_item == 1:  # Client
-                        client_game()
-                    return "Multiplayer"
-
+                        return client_game()
+                    else:
+                        return "Singleplayer"
 
 def host_game():
     waiting_for_client = True
@@ -560,6 +560,8 @@ def host_game():
                     return mode_menu()  # Ritorna al menu principale interrompendo l'attesa
 
         pygame.display.flip()
+
+    return "Multiplayer"
 
 
 def client_game():
@@ -594,6 +596,8 @@ def client_game():
                     server_address += event.unicode  # Aggiungi il carattere digitato
 
         pygame.display.flip()
+
+    return "Multiplayer"
 
 
 def game(fps, mode):
@@ -719,13 +723,14 @@ def game(fps, mode):
         if mode == "Multiplayer" and set(snake1_pos).intersection(snake2_pos):
             running = False
 
-        server.send({
-            'type': 'update',
-            'position': snake1_pos,
-            'direction': snake1_dir,
-            'score': score1,
-            'running': running
-        })
+        if mode == "Multiplayer":
+            server.send({
+                'type': 'update',
+                'position': snake1_pos,
+                'direction': snake1_dir,
+                'score': score1,
+                'running': running
+            })
 
         # Disegna lo sfondo e la griglia
         screen.blit(field_background_image, (0, 0))
