@@ -4,7 +4,6 @@ import pygame
 import random
 import os
 
-import atomics
 import socket as net
 import json
 
@@ -29,29 +28,35 @@ class ServerTask:
         socket.setblocking(False)
         self.socket = socket
 
-        self.is_running = atomics.atomic(width=1, atype=atomics.INTEGRAL, is_signed=False)
-        self.is_running.store(False)
+        self.is_running_lock = Lock()
+        self.is_running = False
 
-        self.is_connected = atomics.atomic(width=1, atype=atomics.INTEGRAL, is_signed=False)
-        self.is_connected.store(False)
+        self.is_connected_lock = Lock()
+        self.is_connected = False
 
         self.client_queue = Queue()
         self.server_queue = Queue()
 
     def start(self):
-        self.is_running.store(True)
+        self.is_running_lock.acquire()
+        self.is_running = True
+        self.is_running_lock.release()
 
         self.thread = Thread(target=self.run)
         self.thread.start()
 
     def stop(self):
-        if self.get_is_running():
-            self.is_running.store(False)
-            self.is_connected.store(False)
+        if self.is_running:
+            self.is_running_lock.acquire()
+            self.is_running = False
+            self.is_running_lock.release()
+            self.is_connected_lock.acquire()
+            self.is_connected = False
+            self.is_connected_lock.release()
             self.thread.join()
 
     def connect(self, address):
-        if self.get_is_connected():
+        if self.is_connected:
             return
 
         self.client_address = address
@@ -60,14 +65,8 @@ class ServerTask:
             'address': address
         })
 
-    def get_is_running(self):
-        return self.is_running.load()
-
-    def get_is_connected(self):
-        return self.is_connected.load()
-
     def run(self):
-        while self.is_running.load():
+        while self.is_running:
             data, address = self.receive()
             if data is not None:
                 message = json.loads(data.decode())
@@ -75,7 +74,9 @@ class ServerTask:
                 match message['type']:
                     case 'identify':
                         self.client_address = address[0]
-                        self.is_connected.store(True)
+                        self.is_connected_lock.acquire()
+                        self.is_connected = True
+                        self.is_connected_lock.release()
 
                     case _:
                         self.client_queue.put(message)
@@ -106,7 +107,7 @@ class ServerTask:
             return None, None
 
     def send(self, message):
-        if not self.is_running.load():
+        if not self.is_running:
             return
 
         print(f'Sent: {message}')
@@ -549,7 +550,7 @@ def host_game():
         draw_text("In attesa della connessione dell'avversario.", font, (255, 255, 255), screen, 100, 250)
         draw_text("Premi ESC per tornare al menu", font, (255, 255, 255), screen, 100, 300)
 
-        if server.get_is_connected():
+        if server.is_connected:
             waiting_for_client = False
 
         # Ciclo eventi di Pygame
@@ -635,11 +636,13 @@ def game(fps, mode):
     if is_game_host or mode == "Single Player":
         food_pos = generate_food(snake1_pos)
         obstacles = generate_obstacles(num_obstacles, snake1_pos, food_pos)
-        server.send({
-            'type': 'extra',
-            'food': food_pos,
-            'obstacles': obstacles
-        })
+
+        if mode == "Multiplayer":
+            server.send({
+                'type': 'extra',
+                'food': food_pos,
+                'obstacles': obstacles
+            })
 
     running = True
     while running and is_other_running:
