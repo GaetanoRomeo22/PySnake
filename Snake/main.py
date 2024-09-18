@@ -7,7 +7,7 @@ import os
 import socket as net
 import json
 
-from threading import Thread, Lock
+from threading import Thread
 from queue import Queue, Empty
 
 # Inizializzazione di Pygame
@@ -28,31 +28,22 @@ class ServerTask:
         socket.setblocking(False)
         self.socket = socket
 
-        self.is_running_lock = Lock()
         self.is_running = False
-
-        self.is_connected_lock = Lock()
         self.is_connected = False
 
         self.client_queue = Queue()
         self.server_queue = Queue()
 
     def start(self):
-        self.is_running_lock.acquire()
         self.is_running = True
-        self.is_running_lock.release()
 
         self.thread = Thread(target=self.run)
         self.thread.start()
 
     def stop(self):
         if self.is_running:
-            self.is_running_lock.acquire()
             self.is_running = False
-            self.is_running_lock.release()
-            self.is_connected_lock.acquire()
             self.is_connected = False
-            self.is_connected_lock.release()
             self.thread.join()
 
     def connect(self, address):
@@ -74,9 +65,7 @@ class ServerTask:
                 match message['type']:
                     case 'identify':
                         self.client_address = address[0]
-                        self.is_connected_lock.acquire()
                         self.is_connected = True
-                        self.is_connected_lock.release()
 
                     case _:
                         self.client_queue.put(message)
